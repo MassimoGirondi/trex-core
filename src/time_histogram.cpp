@@ -55,11 +55,8 @@ void CTimeHistogram::Reset() {
     m_win_cnt = 0;
 
     int i;
-    int j;
     for (i = 0; i < HISTOGRAM_SIZE; i++) {
-        for (j = 0; j < HISTOGRAM_SIZE_LOG; j++) {
-            m_hcnt[j][i] = 0;
-        }
+            m_hcnt[i] = 0;
     }
     if (m_hdrh) {
         hdr_reset(m_hdrh);
@@ -109,26 +106,13 @@ bool CTimeHistogram::Add(dsec_t dt) {
     }
     period_elem.inc_high_cnt();
 
-    uint32_t d_10usec = (uint32_t)(dt*100000.0);
-    // 1 10-19 usec
-    //,2 -20-29 usec
-    //,3,
+		// Floating point latency in seconds to 10usec units 
+    uint32_t d_10usec = (uint32_t)(dt*1000000.0) / HISTOGRAM_STEP;
 
-    int j;
-    for (j = 0; j < HISTOGRAM_SIZE_LOG; j++) {
-        uint32_t low  = d_10usec % 10;
-        uint32_t high = d_10usec / 10;
-        if (high == 0) {
-            if (low > 0) {
-                low = low - 1;
-            }
-            m_hcnt[j][low]++;
-            break;
-        } else {
-            d_10usec = high;
-        }
-    }
-
+		// What do we do otherwise?
+		if(d_10usec<HISTOGRAM_SIZE)
+        m_hcnt[d_10usec]++;
+		
     return true;
 }
 
@@ -215,15 +199,10 @@ void CTimeHistogram::Dump(FILE *fd) {
     fprintf (fd," histogram \n");
     fprintf (fd," -----------\n");
     int i;
-    int j;
-    int base=10;
-    for (j = 0; j < HISTOGRAM_SIZE_LOG; j++) {
-        for (i = 0; i < HISTOGRAM_SIZE; i++) {
-            if (m_hcnt[j][i] > 0) {
-                fprintf (fd," h[%u]  :  %llu \n",(base*(i+1)),(unsigned long long)m_hcnt[j][i]);
+    for (i = 0; i < HISTOGRAM_SIZE; i++) {
+        if (m_hcnt[i] > 0) {
+                fprintf (fd," h[%u]  :  %llu \n",(HISTOGRAM_STEP*(i+1)),(unsigned long long)m_hcnt[i]);
             }
-        }
-        base=base*10;
     }
 }
 
@@ -243,34 +222,72 @@ void CTimeHistogram::dump_json(std::string name,std::string & json ) {
     json+=add_json("s_avg", get_average_latency());
     json+=add_json("s_max", get_max_latency_last_update());
     int i;
-    int j;
-    uint32_t base=10;
 
-    json+=" \"histogram\": [";
+    json+=" \"histogram\": [ ";
     bool first=true;
-    for (j = 0; j < HISTOGRAM_SIZE_LOG; j++) {
-        for (i = 0; i < HISTOGRAM_SIZE; i++) {
-            if (m_hcnt[j][i] > 0) {
-                if ( first ) {
-                    first = false;
-                }else{
-                    json += ",";
-                }
-                json += "{";
-                json += add_json("key",(base*(i+1)));
-                json += add_json("val",m_hcnt[j][i],true);
-                json += "}";
-            }
-        }
-        base = base * 10;
-    }
-    json+="  ] } ,";
+		int start=0;
+		int stop=0;
+		int counter=0;
+		int threshold= m_total_cnt * HISTOGRAM_THRESHOLD / 1000000;
+		for (i = 0; i < HISTOGRAM_SIZE && counter < HISTOGRAM_THRESHOLD_CNT; i++) {
+						
+				if (first)
+				{
+						// We start to count
+						if(m_hcnt[i])
+						{
+								start=i;
+								first=false;
+								json += std::to_string(m_hcnt[i]); 
+						}
+				}else{
+						// Append the value as usual
+						json += ", ";
+						json += std::to_string(m_hcnt[i]);
+
+						// Are we under the threshold?
+						if(m_hcnt[i] < threshold)
+						{
+								// If it's the first element below our threshold
+								if (!stop)
+										stop = i;
+								counter++;
+						}else{
+								if (stop)
+								{
+										// We were counting but there is a good element. Reset the structure.
+										stop = 0;
+										counter = 0;
+								}
+						}
+
+
+				}
+
+						/* json += add_json("key",(HISTOGRAM_STEP*(i+1))); */
+						/* json += add_json("val",m_hcnt[i],true); */
+						/* json += "}"; */
+				}
+
+		json+= " ], ";
+		
+		// usec of the first and last value reppresented by our histogram
+		json += add_json("hist_start",start*10);
+		json += add_json("hist_stop",i*10);
+		
+		// How much are above our stop? -> Can be considered a tail latency
+		counter=0;
+		for(; i<HISTOGRAM_SIZE; i++)
+			counter+=m_hcnt[i];
+		json += add_json("above",counter, true);
+
+
+		json+=" },";
 }
 
 // Used in stateless
 void CTimeHistogram::dump_json(Json::Value & json, bool add_histogram) {
-    int i, j, rc;
-    uint32_t base=10;
+    int i, rc;
     CTimeHistogramPerPeriodData &period_elem = m_period_data[get_read_period_index()];
 
     json["total_max"] = get_usec(m_max_dt);
@@ -279,16 +296,13 @@ void CTimeHistogram::dump_json(Json::Value & json, bool add_histogram) {
     json["average"] = get_average_latency();
 
     if (add_histogram) {
-        for (j = 0; j < HISTOGRAM_SIZE_LOG; j++) {
-            for (i = 0; i < HISTOGRAM_SIZE; i++) {
-                if (m_hcnt[j][i] > 0) {
-                    std::string key = static_cast<std::ostringstream*>( &(std::ostringstream()
-                                                                          << int(base * (i + 1)) ) )->str();
-                    json["histogram"][key] = Json::Value::UInt64(m_hcnt[j][i]);
-                }
-            }
-            base = base * 10;
-        }
+				for (i = 0; i < HISTOGRAM_SIZE; i++) {
+						if (m_hcnt[i] > 0) {
+								std::string key = static_cast<std::ostringstream*>( &(std::ostringstream()
+																																			<< int(HISTOGRAM_STEP * (i + 1)) ) )->str();
+								json["histogram"][key] = Json::Value::UInt64(m_hcnt[i]);
+						}
+				}
         CTimeHistogramPerPeriodData &period_elem = m_period_data[m_period];
         if (m_total_cnt != m_total_cnt_high) {
             // since we are not running update on each get call now, we should also
@@ -304,6 +318,8 @@ void CTimeHistogram::dump_json(Json::Value & json, bool add_histogram) {
             }
             json["histogram"]["0"] = Json::Value::UInt64(m_short_latency);
         }
+
+				//TODO: Check this part!
         if (m_hdrh) {
             char *hdr_encoded_histogram;
 
@@ -319,11 +335,9 @@ void CTimeHistogram::dump_json(Json::Value & json, bool add_histogram) {
 }
 
 CTimeHistogram CTimeHistogram::operator+= (const CTimeHistogram& in) {
-    for (uint8_t i = 0; i < HISTOGRAM_SIZE_LOG; i++) {
-        for (uint8_t j = 0; j < HISTOGRAM_SIZE; j++) {
-            this->m_hcnt[i][j] += in.m_hcnt[i][j];
+    for (uint16_t i = 0; i < HISTOGRAM_SIZE; i++) {
+            this->m_hcnt[i] += in.m_hcnt[i];
         }
-    }
     for (uint i = 0; i < HISTOGRAM_QUEUE_SIZE; i++) {
         this->m_max_ar[i] = std::max(this->m_max_ar[i], in.m_max_ar[i]);
     }

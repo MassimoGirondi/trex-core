@@ -86,9 +86,11 @@ class CTimeHistogramPerPeriodData {
 class CTimeHistogram {
 public:
     enum {
-        HISTOGRAM_SIZE=9,
-        HISTOGRAM_SIZE_LOG=5,
+        HISTOGRAM_STEP=10,	//Step size
+				HISTOGRAM_SIZE=100*1000, //Steps -> Up to 1s of recording in 10usec buckets
         HISTOGRAM_QUEUE_SIZE=14,
+				HISTOGRAM_THRESHOLD=5*1000,	// In parts per million ->  1000 is 0.1%
+				HISTOGRAM_THRESHOLD_CNT=15	// How many below the threshold we wait
     };
     bool Create(void);
     void Delete();
@@ -143,7 +145,7 @@ private:
     uint32_t m_win_cnt;
     uint32_t m_hot_max;
     dsec_t   m_max_ar[HISTOGRAM_QUEUE_SIZE]; // Array of maximum latencies for previous periods
-    uint64_t m_hcnt[HISTOGRAM_SIZE_LOG][HISTOGRAM_SIZE]  ;
+    uint64_t m_hcnt[HISTOGRAM_SIZE]  ;
     // Hdr histogram instance
     hdr_histogram *m_hdrh;
 };
