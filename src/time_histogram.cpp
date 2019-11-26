@@ -225,64 +225,22 @@ void CTimeHistogram::dump_json(std::string name,std::string & json ) {
 
     json+=" \"histogram\": [ ";
     bool first=true;
-		int start=0;
-		int stop=0;
-		int counter=0;
-		int threshold= m_total_cnt * HISTOGRAM_THRESHOLD / 1000000;
-		for (i = 0; i < HISTOGRAM_SIZE && counter < HISTOGRAM_THRESHOLD_CNT; i++) {
+		for (i = 0; i < HISTOGRAM_SIZE; i++) {
 						
 				if (first)
 				{
-						// We start to count
-						if(m_hcnt[i])
-						{
-								start=i;
 								first=false;
 								json += std::to_string(m_hcnt[i]); 
-						}
-				}else{
+				} else {
 						// Append the value as usual
 						json += ", ";
 						json += std::to_string(m_hcnt[i]);
 
-						// Are we under the threshold?
-						if(m_hcnt[i] < threshold)
-						{
-								// If it's the first element below our threshold
-								if (!stop)
-										stop = i;
-								counter++;
-						}else{
-								if (stop)
-								{
-										// We were counting but there is a good element. Reset the structure.
-										stop = 0;
-										counter = 0;
-								}
-						}
-
-
 				}
 
-						/* json += add_json("key",(HISTOGRAM_STEP*(i+1))); */
-						/* json += add_json("val",m_hcnt[i],true); */
-						/* json += "}"; */
-				}
+		}
 
-		json+= " ], ";
-		
-		// usec of the first and last value reppresented by our histogram
-		json += add_json("hist_start",start*10);
-		json += add_json("hist_stop",i*10);
-		
-		// How much are above our stop? -> Can be considered a tail latency
-		counter=0;
-		for(; i<HISTOGRAM_SIZE; i++)
-			counter+=m_hcnt[i];
-		json += add_json("above",counter, true);
-
-
-		json+=" },";
+		json+= " ] },";
 }
 
 // Used in stateless

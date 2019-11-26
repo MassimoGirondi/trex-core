@@ -87,10 +87,8 @@ class CTimeHistogram {
 public:
     enum {
         HISTOGRAM_STEP=10,	//Step size
-				HISTOGRAM_SIZE=100*1000, //Steps -> Up to 1s of recording in 10usec buckets
+				HISTOGRAM_SIZE=100*500, //Steps -> Up 500ms in 10usec buckets
         HISTOGRAM_QUEUE_SIZE=14,
-				HISTOGRAM_THRESHOLD=5*1000,	// In parts per million ->  1000 is 0.1%
-				HISTOGRAM_THRESHOLD_CNT=15	// How many below the threshold we wait
     };
     bool Create(void);
     void Delete();
